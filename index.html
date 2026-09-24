@@ -100,7 +100,7 @@ input[type=number]{
 
   <div class="step">
     <h2><span class="n">1</span>動画をアップロード</h2>
-    <p class="help">緑や白など、なるべく単色の背景で撮影した短い動画がきれいに抜けます。長い動画は自動で間引かれます。</p>
+    <p class="help">緑や白など、なるべく単色の背景で撮影した短い動画がきれいに抜けます。長い動画は自動で間引かれます。MP4(H.264)形式を推奨します。iPhoneのMOV動画はコーデック(HEVC)によっては読み込めない場合があります。</p>
     <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*">
     <video id="video" class="srconly" muted playsinline></video>
     <div id="loadStatus" class="note"></div>
@@ -257,15 +257,30 @@ document.querySelectorAll('.chip').forEach(btn => {
   drawCropPreview();
 }));
 
+video.addEventListener('error', () => {
+  loadStatus.textContent = '動画を読み込めませんでした。お使いのブラウザが対応していないコーデック(iPhoneのMOV/HEVCなど)の可能性があります。MP4(H.264)形式で書き出し直してお試しください。';
+});
+
 fileInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   reset(false);
   loadStatus.textContent = '動画を読み込み中…';
   video.src = URL.createObjectURL(file);
-  await new Promise(res => video.onloadedmetadata = res);
-  try { await video.play(); video.pause(); } catch (err) { /* 自動再生が拒否されても無視して続行 */ }
-  await seekTo(0);
+
+  const ready = await Promise.race([
+    new Promise(res => video.addEventListener('loadeddata', () => res(true), { once: true })),
+    new Promise(res => setTimeout(() => res(false), 6000))
+  ]);
+
+  if (!ready) {
+    loadStatus.textContent = '動画の読み込みがタイムアウトしました。ファイル形式(コーデック)が対応していない可能性があります。MP4(H.264)形式でお試しください。';
+    return;
+  }
+  if (!video.videoWidth || !video.videoHeight) {
+    loadStatus.textContent = '動画のサイズを取得できませんでした。別のファイルでお試しください。';
+    return;
+  }
   loadStatus.textContent = `読み込み完了（${video.videoWidth}×${video.videoHeight}px, ${video.duration.toFixed(1)}秒）`;
   cropStep.style.display = 'block';
   drawCropPreview();
@@ -283,59 +298,67 @@ function getCropRect() {
 
 function drawCropPreview() {
   if (!video.videoWidth) return;
-  const dispW = Math.min(400, video.videoWidth);
-  const dispH = dispW * (video.videoHeight / video.videoWidth);
-  cropCanvas.width = dispW; cropCanvas.height = dispH;
-  cctx.clearRect(0, 0, dispW, dispH);
-  cctx.drawImage(video, 0, 0, dispW, dispH);
-  const r = getCropRect();
-  const s = dispW / video.videoWidth;
-  cctx.save();
-  cctx.fillStyle = 'rgba(0,0,0,0.45)';
-  cctx.fillRect(0, 0, dispW, dispH);
-  cctx.clearRect(r.cx * s, r.cy * s, r.cw * s, r.ch * s);
-  cctx.strokeStyle = '#3d6b52';
-  cctx.lineWidth = 2;
-  cctx.strokeRect(r.cx * s, r.cy * s, r.cw * s, r.ch * s);
-  cctx.restore();
+  try {
+    const dispW = Math.min(400, video.videoWidth);
+    const dispH = dispW * (video.videoHeight / video.videoWidth);
+    cropCanvas.width = dispW; cropCanvas.height = dispH;
+    cctx.clearRect(0, 0, dispW, dispH);
+    cctx.drawImage(video, 0, 0, dispW, dispH);
+    const r = getCropRect();
+    const s = dispW / video.videoWidth;
+    cctx.save();
+    cctx.fillStyle = 'rgba(0,0,0,0.45)';
+    cctx.fillRect(0, 0, dispW, dispH);
+    cctx.clearRect(r.cx * s, r.cy * s, r.cw * s, r.ch * s);
+    cctx.strokeStyle = '#3d6b52';
+    cctx.lineWidth = 2;
+    cctx.strokeRect(r.cx * s, r.cy * s, r.cw * s, r.ch * s);
+    cctx.restore();
+  } catch (err) {
+    loadStatus.textContent = 'プレビューの描画に失敗しました: ' + err.message;
+  }
 }
 
 extractBtn.addEventListener('click', extractFrames);
 
 async function extractFrames() {
   extractBtn.disabled = true;
-  const dur = video.duration;
-  let fps = 10;
-  let count = Math.min(MAX_FRAMES, Math.max(4, Math.round(dur * fps)));
-  fps = count / dur;
-  delay = Math.round(1000 / fps);
+  try {
+    const dur = video.duration;
+    let fps = 10;
+    let count = Math.min(MAX_FRAMES, Math.max(4, Math.round(dur * fps)));
+    fps = count / dur;
+    delay = Math.round(1000 / fps);
 
-  const r = getCropRect();
-  const off = document.createElement('canvas');
-  off.width = targetW; off.height = targetH;
-  const octx = off.getContext('2d');
+    const r = getCropRect();
+    const off = document.createElement('canvas');
+    off.width = targetW; off.height = targetH;
+    const octx = off.getContext('2d');
 
-  frames = [];
-  for (let i = 0; i < count; i++) {
-    const t = (i / count) * dur;
-    await seekTo(t);
-    octx.clearRect(0, 0, targetW, targetH);
-    octx.drawImage(video, r.cx, r.cy, r.cw, r.ch, 0, 0, targetW, targetH);
-    const id = octx.getImageData(0, 0, targetW, targetH);
-    frames.push({ data: new Uint8ClampedArray(id.data), w: targetW, h: targetH });
-    extractStatus.textContent = `フレームを抽出中… (${i + 1}/${count})`;
+    frames = [];
+    for (let i = 0; i < count; i++) {
+      const t = (i / count) * dur;
+      await seekTo(t);
+      octx.clearRect(0, 0, targetW, targetH);
+      octx.drawImage(video, r.cx, r.cy, r.cw, r.ch, 0, 0, targetW, targetH);
+      const id = octx.getImageData(0, 0, targetW, targetH);
+      frames.push({ data: new Uint8ClampedArray(id.data), w: targetW, h: targetH });
+      extractStatus.textContent = `フレームを抽出中… (${i + 1}/${count})`;
+    }
+
+    extractStatus.textContent = `${count}フレームを抽出しました（${targetW}×${targetH}px）`;
+
+    renderFrameGrid();
+    refreshColorPreview();
+
+    frameStep.style.display = 'block';
+    pickStep.style.display = 'block';
+    convertStep.style.display = 'block';
+    frameInfo.textContent = `${frames.length}フレーム / ${targetW}×${targetH}px をAPNGに変換します。`;
+  } catch (err) {
+    extractStatus.textContent = 'フレーム抽出に失敗しました: ' + err.message;
   }
-
-  extractStatus.textContent = `${count}フレームを抽出しました（${targetW}×${targetH}px）`;
   extractBtn.disabled = false;
-
-  renderFrameGrid();
-  refreshColorPreview();
-
-  frameStep.style.display = 'block';
-  pickStep.style.display = 'block';
-  convertStep.style.display = 'block';
-  frameInfo.textContent = `${frames.length}フレーム / ${targetW}×${targetH}px をAPNGに変換します。`;
 }
 
 function renderFrameGrid() {
