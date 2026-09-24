@@ -213,6 +213,17 @@ let picked = null;
 let resultBlob = null;
 let dragIndex = null;
 
+function waitFrameReady() {
+  return new Promise(resolve => {
+    if (video.requestVideoFrameCallback) {
+      video.requestVideoFrameCallback(() => resolve());
+      setTimeout(resolve, 500); // 念のための保険
+    } else {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }
+  });
+}
+
 function seekTo(t) {
   return new Promise(resolve => {
     let done = false;
@@ -280,6 +291,7 @@ fileInput.addEventListener('change', async (e) => {
     loadStatus.textContent = '動画のサイズを取得できませんでした。別のファイルでお試しください。';
     return;
   }
+  await waitFrameReady();
   loadStatus.textContent = `読み込み完了（${video.videoWidth}×${video.videoHeight}px, ${video.duration.toFixed(1)}秒）`;
   cropStep.style.display = 'block';
   drawCropPreview();
@@ -309,6 +321,7 @@ function drawCropPreview() {
     cctx.fillStyle = 'rgba(0,0,0,0.45)';
     cctx.fillRect(0, 0, dispW, dispH);
     cctx.clearRect(r.cx * s, r.cy * s, r.cw * s, r.ch * s);
+    cctx.drawImage(video, r.cx, r.cy, r.cw, r.ch, r.cx * s, r.cy * s, r.cw * s, r.ch * s);
     cctx.strokeStyle = '#3d6b52';
     cctx.lineWidth = 2;
     cctx.strokeRect(r.cx * s, r.cy * s, r.cw * s, r.ch * s);
