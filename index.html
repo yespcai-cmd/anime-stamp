@@ -131,7 +131,7 @@ input[type=number]{
 
   <div class="step" id="frameStep" style="display:none">
     <h2><span class="n">3</span>フレームを並べ替える</h2>
-    <p class="help">サムネイルをドラッグして別のフレームの上にドロップすると、2枚の順番が入れ替わります。不要なフレームは右上の×で削除できます。</p>
+    <p class="help">サムネイルをドラッグして別のフレームの上にドロップすると、その位置に挿入されます(間の並び順がずれます)。不要なフレームは右上の×で削除できます。</p>
     <div id="frameGrid" class="frame-grid"></div>
   </div>
 
@@ -415,9 +415,9 @@ function renderFrameGrid() {
       e.preventDefault();
       item.classList.remove('dragover');
       if (dragIndex === null || dragIndex === i) return;
-      const tmp = frames[dragIndex];
-      frames[dragIndex] = frames[i];
-      frames[i] = tmp;
+      const moved = frames.splice(dragIndex, 1)[0];
+      const insertAt = dragIndex < i ? i - 1 : i;
+      frames.splice(insertAt, 0, moved);
       dragIndex = null;
       renderFrameGrid();
       refreshColorPreview();
