@@ -81,7 +81,6 @@ input[type=number]{
 .dl img{border:1px solid var(--line);border-radius:8px;}
 .note{font-size:.78rem;color:var(--sub);margin-top:6px;}
 .field{margin-bottom:14px;}
-.srconly{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;overflow:hidden;}
 .frame-grid{display:flex;flex-wrap:wrap;gap:10px;}
 .frame-item{position:relative;cursor:grab;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:72px;user-select:none;}
 .frame-item.dragover{outline:2px solid var(--accent);outline-offset:-2px;}
@@ -102,7 +101,7 @@ input[type=number]{
     <h2><span class="n">1</span>動画をアップロード</h2>
     <p class="help">緑や白など、なるべく単色の背景で撮影した短い動画がきれいに抜けます。長い動画は自動で間引かれます。MP4(H.264)形式を推奨します。iPhoneのMOV動画はコーデック(HEVC)によっては読み込めない場合があります。</p>
     <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*">
-    <video id="video" class="srconly" muted playsinline></video>
+    <video id="video" controls playsinline style="max-width:100%;max-height:220px;border-radius:8px;margin-top:10px;display:block"></video>
     <div id="loadStatus" class="note"></div>
   </div>
 
