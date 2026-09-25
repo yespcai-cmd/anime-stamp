@@ -109,10 +109,11 @@ input[type=number]{
     <h2><span class="n">2</span>出力サイズを選ぶ</h2>
     <p class="help">枠からはみ出した部分は切り取られます(トリミング)。人物が枠から外れる場合は下のスライダーで位置を調整してください。</p>
     <div class="row" style="margin-bottom:12px">
-      <button class="chip active" data-w="320" data-h="270">320×270 アニメーションスタンプ</button>
-      <button class="chip" data-w="320" data-h="320">320×320 正方形</button>
-      <button class="chip" data-w="240" data-h="240">240×240 メイン画像</button>
-      <button class="chip" data-w="0" data-h="0" id="customChip">自由入力</button>
+      <button class="chip active" data-w="320" data-h="270" data-maxloop="4" data-maxdur="4">320×270 アニメーションスタンプ</button>
+      <button class="chip" data-w="240" data-h="240" data-maxloop="4" data-maxdur="4">240×240 メイン画像</button>
+      <button class="chip" data-w="180" data-h="180" data-maxloop="4" data-maxdur="4">180×180 アニメーション絵文字</button>
+      <button class="chip" data-w="480" data-h="480" data-maxloop="3" data-maxdur="3">480×480 ポップアップ/エフェクト</button>
+      <button class="chip" data-w="0" data-h="0" id="customChip" data-maxloop="4" data-maxdur="4">自由入力</button>
     </div>
     <div class="row field" id="customFields" style="display:none">
       <label>幅<br><input type="number" id="customW" value="320" min="16" max="800"></label>
@@ -149,6 +150,11 @@ input[type=number]{
   <div class="step" id="convertStep" style="display:none">
     <h2><span class="n">5</span>変換してダウンロード</h2>
     <p class="help" id="frameInfo"></p>
+    <div class="row field">
+      <label>繰り返し回数<br><select id="loopSelect"></select></label>
+      <label>全体の長さ<br><select id="durSelect"></select></label>
+    </div>
+    <p class="note" id="loopDurNote"></p>
     <div class="row">
       <button id="convertBtn">APNGに変換</button>
       <button class="secondary" id="resetBtn">最初からやり直す</button>
@@ -196,6 +202,9 @@ const colorLabel = document.getElementById('colorLabel');
 const tolerance = document.getElementById('tolerance');
 const tolVal = document.getElementById('tolVal');
 const frameInfo = document.getElementById('frameInfo');
+const loopSelect = document.getElementById('loopSelect');
+const durSelect = document.getElementById('durSelect');
+const loopDurNote = document.getElementById('loopDurNote');
 const convertBtn = document.getElementById('convertBtn');
 const resetBtn = document.getElementById('resetBtn');
 const status = document.getElementById('status');
@@ -207,6 +216,7 @@ const downloadBtn = document.getElementById('downloadBtn');
 
 const MAX_FRAMES = 20;
 let targetW = 320, targetH = 270;
+let maxLoopCount = 4, maxDurSec = 4;
 let frames = [];
 let delay = 100;
 let picked = null;
@@ -253,9 +263,33 @@ document.querySelectorAll('.chip').forEach(btn => {
       targetW = parseInt(btn.dataset.w, 10);
       targetH = parseInt(btn.dataset.h, 10);
     }
+    maxLoopCount = parseInt(btn.dataset.maxloop, 10) || 4;
+    maxDurSec = parseInt(btn.dataset.maxdur, 10) || 4;
+    renderLoopDurOptions();
     drawCropPreview();
   });
 });
+
+function renderLoopDurOptions() {
+  const prevLoop = Math.min(parseInt(loopSelect.value, 10) || 1, maxLoopCount);
+  const prevDur = Math.min(parseInt(durSelect.value, 10) || maxDurSec, maxDurSec);
+  loopSelect.innerHTML = '';
+  for (let i = 1; i <= maxLoopCount; i++) {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `${i}回`;
+    loopSelect.appendChild(o);
+  }
+  loopSelect.value = prevLoop || 1;
+  durSelect.innerHTML = '';
+  for (let i = 1; i <= maxDurSec; i++) {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `${i}秒`;
+    durSelect.appendChild(o);
+  }
+  durSelect.value = prevDur || maxDurSec;
+  loopDurNote.textContent = `このサイズでは繰り返し1〜${maxLoopCount}回、長さ1〜${maxDurSec}秒まで選べます。`;
+}
+renderLoopDurOptions();
 [customW, customH].forEach(el => el.addEventListener('input', () => {
   targetW = parseInt(customW.value, 10) || 320;
   targetH = parseInt(customH.value, 10) || 270;
@@ -483,8 +517,11 @@ convertBtn.addEventListener('click', async () => {
 
     status.textContent = 'APNGにエンコード中…';
     await new Promise(r => setTimeout(r, 30));
-    const delays = frames.map(() => delay);
-    const apngBuf = UPNG.encode(bufs, frames[0].w, frames[0].h, 0, delays);
+    const durMs = parseInt(durSelect.value, 10) * 1000;
+    const loopCount = parseInt(loopSelect.value, 10);
+    const perFrameDelay = Math.max(20, Math.round(durMs / frames.length));
+    const delays = frames.map(() => perFrameDelay);
+    const apngBuf = UPNG.encode(bufs, frames[0].w, frames[0].h, 0, delays, { loop: loopCount });
     progressFill.style.width = '100%';
 
     resultBlob = new Blob([apngBuf], { type: 'image/png' });
