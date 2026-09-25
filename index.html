@@ -223,6 +223,40 @@ let picked = null;
 let resultBlob = null;
 let dragIndex = null;
 
+const _crcTable = (() => {
+  const t = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function pngCrc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = _crcTable[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+// 使用しているUPNG.js(npm配布版)はacTLのnum_plays(ループ回数)を常に0(無限)で
+// 書き出す仕様のため、生成後のバイナリを直接書き換えてループ回数を指定する。
+function setApngLoopCount(buf, loops) {
+  const view = new DataView(buf);
+  const bytes = new Uint8Array(buf);
+  let offset = 8;
+  while (offset + 8 <= buf.byteLength) {
+    const len = view.getUint32(offset);
+    const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
+    if (type === 'acTL') {
+      view.setUint32(offset + 8 + 4, loops >>> 0); // num_frames(4byte)の直後がnum_plays
+      const crcInput = bytes.slice(offset + 4, offset + 8 + len); // type + data
+      view.setUint32(offset + 8 + len, pngCrc32(crcInput) >>> 0);
+      break;
+    }
+    offset += 12 + len;
+  }
+  return buf;
+}
+
 function waitFrameReady() {
   return new Promise(resolve => {
     if (video.requestVideoFrameCallback) {
@@ -521,7 +555,8 @@ convertBtn.addEventListener('click', async () => {
     const loopCount = parseInt(loopSelect.value, 10);
     const perFrameDelay = Math.max(20, Math.round(durMs / frames.length));
     const delays = frames.map(() => perFrameDelay);
-    const apngBuf = UPNG.encode(bufs, frames[0].w, frames[0].h, 0, delays, { loop: loopCount });
+    let apngBuf = UPNG.encode(bufs, frames[0].w, frames[0].h, 0, delays);
+    apngBuf = setApngLoopCount(apngBuf, loopCount);
     progressFill.style.width = '100%';
 
     resultBlob = new Blob([apngBuf], { type: 'image/png' });
