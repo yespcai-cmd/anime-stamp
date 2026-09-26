@@ -125,6 +125,8 @@ input[type=number]{
       <input type="range" id="offX" min="-100" max="100" value="0">
       <div class="sliderlabel" style="margin-top:8px"><span>トリミング位置(縦)</span><span id="offYVal">中央</span></div>
       <input type="range" id="offY" min="-100" max="100" value="0">
+      <div class="sliderlabel" style="margin-top:8px"><span>トリミング範囲の拡大・縮小</span><span id="zoomVal">100%</span></div>
+      <input type="range" id="zoomSlider" min="100" max="400" step="5" value="100">
     </div>
     <button id="extractBtn">このサイズでフレームを抽出</button>
     <div id="extractStatus" class="note"></div>
@@ -188,6 +190,8 @@ const offX = document.getElementById('offX');
 const offY = document.getElementById('offY');
 const offXVal = document.getElementById('offXVal');
 const offYVal = document.getElementById('offYVal');
+const zoomSlider = document.getElementById('zoomSlider');
+const zoomVal = document.getElementById('zoomVal');
 const extractBtn = document.getElementById('extractBtn');
 const extractStatus = document.getElementById('extractStatus');
 
@@ -337,6 +341,10 @@ renderLoopDurOptions();
   offYVal.textContent = offY.value == 0 ? '中央' : offY.value;
   drawCropPreview();
 }));
+zoomSlider.addEventListener('input', () => {
+  zoomVal.textContent = zoomSlider.value + '%';
+  drawCropPreview();
+});
 
 video.addEventListener('error', () => {
   loadStatus.textContent = '動画を読み込めませんでした。お使いのブラウザが対応していないコーデック(iPhoneのMOV/HEVCなど)の可能性があります。MP4(H.264)形式で書き出し直してお試しください。';
@@ -370,7 +378,9 @@ fileInput.addEventListener('change', async (e) => {
 
 function getCropRect() {
   const vw = video.videoWidth, vh = video.videoHeight;
-  const scale = Math.max(targetW / vw, targetH / vh);
+  const baseScale = Math.max(targetW / vw, targetH / vh);
+  const zoom = (parseInt(zoomSlider.value, 10) || 100) / 100;
+  const scale = baseScale * zoom;
   const cw = targetW / scale, ch = targetH / scale;
   const marginX = vw - cw, marginY = vh - ch;
   const cx = marginX / 2 + (marginX / 2) * (parseInt(offX.value, 10) / 100);
