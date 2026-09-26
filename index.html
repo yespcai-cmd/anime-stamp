@@ -109,11 +109,11 @@ input[type=number]{
     <h2><span class="n">2</span>出力サイズを選ぶ</h2>
     <p class="help">枠からはみ出した部分は切り取られます(トリミング)。人物が枠から外れる場合は下のスライダーで位置を調整してください。</p>
     <div class="row" style="margin-bottom:12px">
-      <button class="chip active" data-w="320" data-h="270" data-maxloop="4" data-maxdur="4">320×270 アニメーションスタンプ</button>
-      <button class="chip" data-w="240" data-h="240" data-maxloop="4" data-maxdur="4">240×240 メイン画像</button>
-      <button class="chip" data-w="180" data-h="180" data-maxloop="4" data-maxdur="4">180×180 アニメーション絵文字</button>
-      <button class="chip" data-w="480" data-h="480" data-maxloop="3" data-maxdur="3">480×480 ポップアップ/エフェクト</button>
-      <button class="chip" data-w="0" data-h="0" id="customChip" data-maxloop="4" data-maxdur="4">自由入力</button>
+      <button class="chip active" data-w="320" data-h="270" data-maxloop="4" data-maxdur="4" data-filename="sticker.png">320×270 アニメーションスタンプ</button>
+      <button class="chip" data-w="240" data-h="240" data-maxloop="4" data-maxdur="4" data-filename="main.png">240×240 メイン画像</button>
+      <button class="chip" data-w="180" data-h="180" data-maxloop="4" data-maxdur="4" data-filename="sticker.png">180×180 アニメーション絵文字</button>
+      <button class="chip" data-w="480" data-h="480" data-maxloop="3" data-maxdur="3" data-filename="sticker.png">480×480 ポップアップ/エフェクト</button>
+      <button class="chip" data-w="0" data-h="0" id="customChip" data-maxloop="4" data-maxdur="4" data-filename="sticker.png">自由入力</button>
     </div>
     <div class="row field" id="customFields" style="display:none">
       <label>幅<br><input type="number" id="customW" value="320" min="16" max="800"></label>
@@ -217,6 +217,7 @@ const downloadBtn = document.getElementById('downloadBtn');
 const MAX_FRAMES = 20;
 let targetW = 320, targetH = 270;
 let maxLoopCount = 4, maxDurSec = 4;
+let outputFilename = 'sticker.png';
 let frames = [];
 let delay = 100;
 let picked = null;
@@ -299,6 +300,8 @@ document.querySelectorAll('.chip').forEach(btn => {
     }
     maxLoopCount = parseInt(btn.dataset.maxloop, 10) || 4;
     maxDurSec = parseInt(btn.dataset.maxdur, 10) || 4;
+    outputFilename = btn.dataset.filename || 'sticker.png';
+    downloadBtn.textContent = `${outputFilename} をダウンロード`;
     renderLoopDurOptions();
     drawCropPreview();
   });
@@ -573,7 +576,7 @@ downloadBtn.addEventListener('click', () => {
   if (!resultBlob) return;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(resultBlob);
-  a.download = 'sticker.png';
+  a.download = outputFilename;
   a.click();
 });
 
