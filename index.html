@@ -1,3 +1,4 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -128,7 +129,8 @@ input[type=number]{
       <div class="sliderlabel" style="margin-top:8px"><span>トリミング位置(縦)</span><span id="offYVal">中央</span></div>
       <input type="range" id="offY" min="-100" max="100" value="0">
       <div class="sliderlabel" style="margin-top:8px"><span>トリミング範囲の拡大・縮小</span><span id="zoomVal">100%</span></div>
-      <input type="range" id="zoomSlider" min="100" max="400" step="5" value="100">
+      <input type="range" id="zoomSlider" min="25" max="400" step="5" value="100">
+      <p class="note">100%より小さくすると、元の動画より広い範囲を選べます(動画の外側は透明になります)。</p>
     </div>
     <button id="extractBtn">このサイズでフレームを抽出</button>
     <div id="extractStatus" class="note"></div>
@@ -143,8 +145,11 @@ input[type=number]{
 
   <div class="step" id="pickStep" style="display:none">
     <h2><span class="n">4</span>背景色を指定</h2>
-    <p class="help">下の画像をクリックして、透過したい背景の色を選んでください。許容値を上げるほど、近い色まで広く透過します。</p>
+    <p class="help">下の画像をクリックして、透過したい背景の色を選んでください。許容値を上げるほど、近い色まで広く透過します。背景を透過しない場合は、下のチェックボックスをオンにしてください。</p>
     <div id="previewWrap"><canvas id="pickCanvas" class="checker"></canvas></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:.88rem;margin-top:12px;cursor:pointer">
+      <input type="checkbox" id="noKeyCheck"> 背景色を選択しない(背景を透過せず、そのまま変換する)
+    </label>
     <div class="swatchrow"><div class="swatch" id="swatch"></div><span id="colorLabel">まだ選択されていません</span></div>
     <div style="margin-top:14px">
       <div class="sliderlabel"><span>許容値</span><span id="tolVal">40</span></div>
@@ -210,6 +215,7 @@ const pctx = pickCanvas.getContext('2d');
 const swatch = document.getElementById('swatch');
 const colorLabel = document.getElementById('colorLabel');
 const tolerance = document.getElementById('tolerance');
+const noKeyCheck = document.getElementById('noKeyCheck');
 const tolVal = document.getElementById('tolVal');
 const frameInfo = document.getElementById('frameInfo');
 const loopSelect = document.getElementById('loopSelect');
@@ -400,29 +406,47 @@ function getCropRect() {
   const scale = baseScale * zoom;
   const cw = targetW / scale, ch = targetH / scale;
   const marginX = vw - cw, marginY = vh - ch;
+  // marginが負(縮小時)の場合も 0〜margin の範囲で動かせる
   const cx = marginX / 2 + (marginX / 2) * (parseInt(offX.value, 10) / 100);
   const cy = marginY / 2 + (marginY / 2) * (parseInt(offY.value, 10) / 100);
-  return { cx: Math.max(0, Math.min(marginX, cx)), cy: Math.max(0, Math.min(marginY, cy)), cw, ch };
+  const clamp = (v, m) => Math.max(Math.min(0, m), Math.min(Math.max(0, m), v));
+  return { cx: clamp(cx, marginX), cy: clamp(cy, marginY), cw, ch };
+}
+
+// トリミング範囲(r)を動画から切り出して描画。範囲が動画の外にはみ出す部分は透明のまま。
+function drawCropped(ctx, r, dx, dy, k) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const sx0 = Math.max(r.cx, 0), sy0 = Math.max(r.cy, 0);
+  const sx1 = Math.min(r.cx + r.cw, vw), sy1 = Math.min(r.cy + r.ch, vh);
+  if (sx1 <= sx0 || sy1 <= sy0) return;
+  ctx.drawImage(video, sx0, sy0, sx1 - sx0, sy1 - sy0,
+    dx + (sx0 - r.cx) * k, dy + (sy0 - r.cy) * k, (sx1 - sx0) * k, (sy1 - sy0) * k);
 }
 
 function drawCropPreview() {
   if (!video.videoWidth) return;
   try {
-    const dispW = Math.min(400, video.videoWidth);
-    const dispH = dispW * (video.videoHeight / video.videoWidth);
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const r = getCropRect();
+    // 動画とトリミング枠の両方が収まる範囲を表示(縮小時は枠が動画の外へ広がる)
+    const minX = Math.min(0, r.cx), minY = Math.min(0, r.cy);
+    const maxX = Math.max(vw, r.cx + r.cw), maxY = Math.max(vh, r.cy + r.ch);
+    const s = Math.min(400 / (maxX - minX), 400 / (maxY - minY), 1);
+    const dispW = Math.max(1, Math.round((maxX - minX) * s));
+    const dispH = Math.max(1, Math.round((maxY - minY) * s));
     cropCanvas.width = dispW; cropCanvas.height = dispH;
     cctx.clearRect(0, 0, dispW, dispH);
-    cctx.drawImage(video, 0, 0, dispW, dispH);
-    const r = getCropRect();
-    const s = dispW / video.videoWidth;
+    const ox = -minX * s, oy = -minY * s; // 動画左上の表示位置
+    cctx.drawImage(video, ox, oy, vw * s, vh * s);
+    const bx = (r.cx - minX) * s, by = (r.cy - minY) * s, bw = r.cw * s, bh = r.ch * s;
     cctx.save();
     cctx.fillStyle = 'rgba(0,0,0,0.45)';
     cctx.fillRect(0, 0, dispW, dispH);
-    cctx.clearRect(r.cx * s, r.cy * s, r.cw * s, r.ch * s);
-    cctx.drawImage(video, r.cx, r.cy, r.cw, r.ch, r.cx * s, r.cy * s, r.cw * s, r.ch * s);
+    cctx.clearRect(bx, by, bw, bh);
+    drawCropped(cctx, r, bx, by, s);
     cctx.strokeStyle = '#3d6b52';
     cctx.lineWidth = 2;
-    cctx.strokeRect(r.cx * s, r.cy * s, r.cw * s, r.ch * s);
+    cctx.strokeRect(bx, by, bw, bh);
     cctx.restore();
   } catch (err) {
     loadStatus.textContent = 'プレビューの描画に失敗しました: ' + err.message;
@@ -450,7 +474,7 @@ async function extractFrames() {
       const t = (i / count) * dur;
       await seekTo(t);
       octx.clearRect(0, 0, targetW, targetH);
-      octx.drawImage(video, r.cx, r.cy, r.cw, r.ch, 0, 0, targetW, targetH);
+      drawCropped(octx, r, 0, 0, targetW / r.cw);
       const id = octx.getImageData(0, 0, targetW, targetH);
       frames.push({ data: new Uint8ClampedArray(id.data), w: targetW, h: targetH });
       extractStatus.textContent = `フレームを抽出中… (${i + 1}/${count})`;
@@ -551,6 +575,7 @@ function refreshColorPreview() {
 }
 
 pickCanvas.addEventListener('click', (e) => {
+  if (noKeyCheck.checked) return;
   const rect = pickCanvas.getBoundingClientRect();
   const x = Math.floor((e.clientX - rect.left) * (pickCanvas.width / rect.width));
   const y = Math.floor((e.clientY - rect.top) * (pickCanvas.height / rect.height));
@@ -574,7 +599,15 @@ function drawPreviewWithKey() {
   pctx.putImageData(new ImageData(out, src.w, src.h), 0, 0);
 }
 
+noKeyCheck.addEventListener('change', () => {
+  const off = noKeyCheck.checked;
+  tolerance.disabled = off;
+  pickCanvas.style.cursor = off ? 'default' : 'crosshair';
+  refreshColorPreview();
+});
+
 function applyKey(data, color, tol) {
+  if (noKeyCheck.checked || !color) return;
   const tol2 = tol * tol;
   for (let i = 0; i < data.length; i += 4) {
     const dr = data[i] - color.r, dg = data[i + 1] - color.g, db = data[i + 2] - color.b;
@@ -583,7 +616,7 @@ function applyKey(data, color, tol) {
 }
 
 convertBtn.addEventListener('click', async () => {
-  if (!picked) { status.textContent = '先に背景色をクリックして選んでください。'; return; }
+  if (!picked && !noKeyCheck.checked) { status.textContent = '背景色をクリックして選ぶか、「背景色を選択しない」にチェックを入れてください。'; return; }
   if (typeof UPNG === 'undefined') { status.textContent = 'エンコーダーの読み込みに失敗しました。通信環境を確認して再読み込みしてください。'; return; }
   convertBtn.disabled = true;
   progressBar.style.display = 'block';
@@ -671,3 +704,5 @@ function reset(clearFile) {
 </script>
 </body>
 </html>
+
+</body></html>
