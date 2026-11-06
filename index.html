@@ -101,8 +101,8 @@ input[type=number]{
 
   <div class="step">
     <h2><span class="n">1</span>動画をアップロード</h2>
-    <p class="help">緑や白など、なるべく単色の背景で撮影した短い動画がきれいに抜けます。長い動画は自動で間引かれます。MP4(H.264)形式を推奨します。iPhoneのMOV動画はコーデック(HEVC)によっては読み込めない場合があります。</p>
-    <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*">
+    <p class="help">緑や白など、なるべく単色の背景で撮影した短い動画がきれいに抜けます。長い動画は自動で間引かれます。MP4(H.264)形式を推奨します。PNG画像(静止画)も読み込めます。画像の場合は1枚だけの透過PNGとして書き出されます。iPhoneのMOV動画はコーデック(HEVC)によっては読み込めない場合があります。</p>
+    <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*,image/png,image/*">
     <video id="video" controls playsinline style="max-width:100%;max-height:220px;border-radius:8px;margin-top:10px;display:block"></video>
     <div id="loadStatus" class="note"></div>
   </div>
@@ -158,7 +158,7 @@ input[type=number]{
   </div>
 
   <div class="step" id="convertStep" style="display:none">
-    <h2><span class="n">5</span>変換してダウンロード</h2>
+    <h2><span class="n">5</span><span id="step5Title">変換してダウンロード</span></h2>
     <p class="help" id="frameInfo"></p>
     <div id="apngOptions">
       <div class="row field">
@@ -323,7 +323,7 @@ document.querySelectorAll('.chip').forEach(btn => {
     isStaticMode = btn.dataset.static === 'true';
     downloadBtn.textContent = `${outputFilename} をダウンロード`;
     convertBtn.textContent = isStaticMode ? 'PNGとして書き出す' : 'APNGに変換';
-    apngOptions.style.display = isStaticMode ? 'none' : 'block';
+    apngOptions.style.display = (isStaticMode || imgMode) ? 'none' : 'block';
     if (frames.length) {
       selectedFrameIndex = Math.min(selectedFrameIndex, frames.length - 1);
       renderFrameGrid();
@@ -377,6 +377,10 @@ fileInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   reset(false);
+  if (file.type.startsWith('image/')) { await loadImageFile(file); return; }
+  imgMode = false;
+  applyImgModeUI();
+  video.style.display = 'block';
   loadStatus.textContent = '動画を読み込み中…';
   video.src = URL.createObjectURL(file);
 
@@ -399,8 +403,40 @@ fileInput.addEventListener('change', async (e) => {
   drawCropPreview();
 });
 
+// --- 画像(PNG等)の読み込み対応 ---
+let imgMode = false;
+const imgEl = new Image();
+const srcEl = () => imgMode ? imgEl : video;
+const srcW = () => imgMode ? imgEl.naturalWidth : video.videoWidth;
+const srcH = () => imgMode ? imgEl.naturalHeight : video.videoHeight;
+
+async function loadImageFile(file) {
+  loadStatus.textContent = '画像を読み込み中…';
+  video.pause();
+  video.style.display = 'none';
+  imgMode = true;
+  applyImgModeUI();
+  try {
+    await new Promise((res, rej) => {
+      imgEl.onload = res;
+      imgEl.onerror = rej;
+      imgEl.src = URL.createObjectURL(file);
+    });
+  } catch (e) {
+    loadStatus.textContent = '画像を読み込めませんでした。別のファイルでお試しください。';
+    return;
+  }
+  if (!srcW() || !srcH()) {
+    loadStatus.textContent = '画像のサイズを取得できませんでした。別のファイルでお試しください。';
+    return;
+  }
+  loadStatus.textContent = `読み込み完了（${srcW()}×${srcH()}px, 静止画）`;
+  cropStep.style.display = 'block';
+  drawCropPreview();
+}
+
 function getCropRect() {
-  const vw = video.videoWidth, vh = video.videoHeight;
+  const vw = srcW(), vh = srcH();
   const baseScale = Math.max(targetW / vw, targetH / vh);
   const zoom = (parseInt(zoomSlider.value, 10) || 100) / 100;
   const scale = baseScale * zoom;
@@ -415,18 +451,18 @@ function getCropRect() {
 
 // トリミング範囲(r)を動画から切り出して描画。範囲が動画の外にはみ出す部分は透明のまま。
 function drawCropped(ctx, r, dx, dy, k) {
-  const vw = video.videoWidth, vh = video.videoHeight;
+  const vw = srcW(), vh = srcH();
   const sx0 = Math.max(r.cx, 0), sy0 = Math.max(r.cy, 0);
   const sx1 = Math.min(r.cx + r.cw, vw), sy1 = Math.min(r.cy + r.ch, vh);
   if (sx1 <= sx0 || sy1 <= sy0) return;
-  ctx.drawImage(video, sx0, sy0, sx1 - sx0, sy1 - sy0,
+  ctx.drawImage(srcEl(), sx0, sy0, sx1 - sx0, sy1 - sy0,
     dx + (sx0 - r.cx) * k, dy + (sy0 - r.cy) * k, (sx1 - sx0) * k, (sy1 - sy0) * k);
 }
 
 function drawCropPreview() {
-  if (!video.videoWidth) return;
+  if (!srcW()) return;
   try {
-    const vw = video.videoWidth, vh = video.videoHeight;
+    const vw = srcW(), vh = srcH();
     const r = getCropRect();
     // 動画とトリミング枠の両方が収まる範囲を表示(縮小時は枠が動画の外へ広がる)
     const minX = Math.min(0, r.cx), minY = Math.min(0, r.cy);
@@ -437,7 +473,7 @@ function drawCropPreview() {
     cropCanvas.width = dispW; cropCanvas.height = dispH;
     cctx.clearRect(0, 0, dispW, dispH);
     const ox = -minX * s, oy = -minY * s; // 動画左上の表示位置
-    cctx.drawImage(video, ox, oy, vw * s, vh * s);
+    cctx.drawImage(srcEl(), ox, oy, vw * s, vh * s);
     const bx = (r.cx - minX) * s, by = (r.cy - minY) * s, bw = r.cw * s, bh = r.ch * s;
     cctx.save();
     cctx.fillStyle = 'rgba(0,0,0,0.45)';
@@ -458,9 +494,9 @@ extractBtn.addEventListener('click', extractFrames);
 async function extractFrames() {
   extractBtn.disabled = true;
   try {
-    const dur = video.duration;
+    const dur = imgMode ? 1 : video.duration;
     let fps = 10;
-    let count = Math.min(MAX_FRAMES, Math.max(4, Math.round(dur * fps)));
+    let count = imgMode ? 1 : Math.min(MAX_FRAMES, Math.max(4, Math.round(dur * fps)));
     fps = count / dur;
     delay = Math.round(1000 / fps);
 
@@ -472,7 +508,7 @@ async function extractFrames() {
     frames = [];
     for (let i = 0; i < count; i++) {
       const t = (i / count) * dur;
-      await seekTo(t);
+      if (!imgMode) await seekTo(t);
       octx.clearRect(0, 0, targetW, targetH);
       drawCropped(octx, r, 0, 0, targetW / r.cw);
       const id = octx.getImageData(0, 0, targetW, targetH);
@@ -492,6 +528,7 @@ async function extractFrames() {
     frameInfo.textContent = isStaticMode
       ? `③で選んだ1枚を透過PNG(${targetW}×${targetH}px)として書き出します。`
       : `${frames.length}フレーム / ${targetW}×${targetH}px をAPNGに変換します。`;
+    if (frames.length === 1) frameInfo.textContent = `画像1枚をPNG(${targetW}×${targetH}px)としてダウンロードできます。背景色の設定は自動で反映されます。`;
   } catch (err) {
     extractStatus.textContent = 'フレーム抽出に失敗しました: ' + err.message;
   }
@@ -571,7 +608,7 @@ function refreshColorPreview() {
   const idx = isStaticMode ? Math.min(selectedFrameIndex, frames.length - 1) : 0;
   pickCanvas.width = frames[idx].w; pickCanvas.height = frames[idx].h;
   if (picked) drawPreviewWithKey();
-  else pctx.putImageData(new ImageData(frames[idx].data, frames[idx].w, frames[idx].h), 0, 0);
+  else { pctx.putImageData(new ImageData(frames[idx].data, frames[idx].w, frames[idx].h), 0, 0); updateImageResult(); }
 }
 
 pickCanvas.addEventListener('click', (e) => {
@@ -597,6 +634,27 @@ function drawPreviewWithKey() {
   const out = new Uint8ClampedArray(src.data);
   applyKey(out, picked, parseInt(tolerance.value, 10));
   pctx.putImageData(new ImageData(out, src.w, src.h), 0, 0);
+  updateImageResult();
+}
+
+// PNG画像のときは「変換」ボタンを出さず、ダウンロードのみにする
+function applyImgModeUI() {
+  document.getElementById('step5Title').textContent = imgMode ? 'ダウンロード' : '変換してダウンロード';
+  convertBtn.style.display = imgMode ? 'none' : '';
+  apngOptions.style.display = (imgMode || isStaticMode) ? 'none' : 'block';
+}
+
+// 画像モードでは、背景色の設定を反映したPNGを自動で用意する
+function updateImageResult() {
+  if (!imgMode || !frames.length || typeof UPNG === 'undefined') return;
+  const src = frames[0];
+  const out = new Uint8ClampedArray(src.data);
+  applyKey(out, picked, parseInt(tolerance.value, 10));
+  const pngBuf = UPNG.encode([out.buffer], src.w, src.h, 0);
+  resultBlob = new Blob([pngBuf], { type: 'image/png' });
+  resultImg.src = URL.createObjectURL(resultBlob);
+  dlWrap.style.display = 'block';
+  status.textContent = `ダウンロードできます（${(resultBlob.size / 1024).toFixed(0)}KB）`;
 }
 
 noKeyCheck.addEventListener('change', () => {
@@ -659,8 +717,13 @@ convertBtn.addEventListener('click', async () => {
     const loopCount = parseInt(loopSelect.value, 10);
     const perFrameDelay = Math.max(20, Math.round(durMs / frames.length));
     const delays = frames.map(() => perFrameDelay);
-    let apngBuf = UPNG.encode(bufs, frames[0].w, frames[0].h, 0, delays);
-    apngBuf = setApngLoopCount(apngBuf, loopCount);
+    let apngBuf;
+    if (bufs.length === 1) {
+      apngBuf = UPNG.encode(bufs, frames[0].w, frames[0].h, 0); // 静止画はふつうのPNG
+    } else {
+      apngBuf = UPNG.encode(bufs, frames[0].w, frames[0].h, 0, delays);
+      apngBuf = setApngLoopCount(apngBuf, loopCount);
+    }
     progressFill.style.width = '100%';
 
     resultBlob = new Blob([apngBuf], { type: 'image/png' });
